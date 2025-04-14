@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment files
+.env*
+!.env.example
+
+# Build outputs
+dist/
+build/
+
+# Logs
+logs/
+*.log
+server.log
+server_response.log
+message_response.log
+
+# IDE and editor files
+.vscode/
+.idea/
+.cursor/
+.cursor.json
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime data
+instances/*/data/
+instances/*/logs/
+instances/*/cache/
+knowledge_files/
+characters_backup/
+model.gguf
+
+# Cache directories
+.cache/
+content_cache/
+
+# Generated scripts
+list-characters-*.sh
+restart-characters-*.sh
+
+# But keep the base scripts
+!list-characters.sh
+!restart-characters.sh
+!start-services.sh
+!start-server.sh
+!process_knowledge.sh
+
+# Local configuration
+tsconfig.client.json
+.eslintrc.json
+.prettierrc.json
+
+db.sqlite
+.tee-cloud
