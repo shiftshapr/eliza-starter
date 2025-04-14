@@ -69,7 +69,7 @@ fi
 
 # Kill any existing processes using our ports
 log "Clearing ports..."
-lsof -ti:3000,3001,3002,3003,3004,3005,5173,9000 | xargs kill -9 2>/dev/null || true
+lsof -ti:3000,5173,9000 | xargs kill -9 2>/dev/null || true
 # Also kill any node processes that might be holding onto ports
 pkill -9 -f "node.*index.ts" 2>/dev/null || true
 pkill -9 -f "pnpm.*start" 2>/dev/null || true
@@ -151,7 +151,7 @@ pm2 start "pnpm start" --name "deepseek-proxy-$INSTANCE_NAME" \
   --time
 
 # Check if proxy started
-check_service "deepseek-proxy-$INSTANCE_NAME" "http://localhost:9000/health" 15 1 || exit 1
+check_service "deepseek-proxy-$INSTANCE_NAME" "http://216.238.91.120:9000/health" 15 1 || exit 1
 
 # STEP 2: Start Server with all characters in one process
 log "Starting server with characters: $CHARACTER_LIST"
@@ -187,27 +187,34 @@ pm2 start "$SCRIPT_FILE" \
 
 # Check if server started
 log "Waiting for server to start (this may take a few minutes)..."
-check_service "eliza-server-$INSTANCE_NAME" "http://localhost:3000/agents" 180 2 || log "Warning: Server check failed, but continuing anyway..."
+check_service "eliza-server-$INSTANCE_NAME" "http://216.238.91.120:3000/agents" 180 2 || log "Warning: Server check failed, but continuing anyway..."
 
 # STEP 3: Start Client
 log "Starting client with PM2..."
 
 # First install client dependencies if needed
-cd /home/ubuntu/eliza-starter/client && \
+cd /home/ubuntu/eliza/client && \
 pnpm install
 
 # Build the client first
+log "Building client in production mode..."
+cd /home/ubuntu/eliza/client && \
+NODE_ENV=production \
+VITE_API_BASE_URL=http://216.238.91.120:$SERVER_PORT \
+VITE_CLIENT_PORT=$CLIENT_PORT \
 pnpm build
 
-# Start the client with PM2
-pm2 start "pnpm preview" \
+# Then start the client in preview mode
+log "Starting client preview server..."
+cd /home/ubuntu/eliza/client && \
+pm2 start "NODE_ENV=production VITE_API_BASE_URL=http://216.238.91.120:$SERVER_PORT VITE_CLIENT_PORT=$CLIENT_PORT pnpm preview --host 0.0.0.0 --port $CLIENT_PORT" \
     --name "eliza-client-$INSTANCE_NAME" \
     --log "$LOG_DIR/client-$INSTANCE_NAME.log" \
     --merge-logs \
     --time
 
 # Check if client started
-check_service "eliza-client-$INSTANCE_NAME" "http://localhost:5173" 15 1 || log "Warning: Client check failed, but continuing anyway..."
+check_service "eliza-client-$INSTANCE_NAME" "http://216.238.91.120:5173" 15 1 || log "Warning: Client check failed, but continuing anyway..."
 
-log "All services started. Client should be available at http://localhost:5173"
+log "All services started. Client should be available at http://216.238.91.120:5173"
 log "Check logs with: pm2 logs"

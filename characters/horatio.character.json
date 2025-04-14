@@ -23,7 +23,7 @@
       "TWITTER_TARGET_USERS": "LiterAiry1623",
       "TAVILY_API_KEY": "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",
       "DEEPSEEK_API_KEY": "sk-4bb6e24672b04032af893f1f113d9fb3",
-      "DEEPSEEK_API_URL": "http://localhost:9000"
+      "DEEPSEEK_API_URL": "http://216.238.91.120:9000"
     },
     "webSearch": {
       "enabled": true,

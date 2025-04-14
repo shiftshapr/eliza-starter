@@ -1,14 +1,18 @@
 #!/bin/bash
 
-# Define log file paths
-LOG_DIR="/home/ubuntu/eliza-starter/logs"
+# Define project root and log paths
+PROJECT_ROOT="/home/ubuntu/eliza-starter"
+LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p $LOG_DIR
 
 # Default settings
 DEBUG_MODE=false
 CHARACTERS=()
 DEFAULT_CHARACTER="horatio"
-INSTANCE_NAME="default"  # Default instance name
+INSTANCE_NAME="shakespeare"  # Fixed instance name for Shakespeare
+PROXY_PORT=9000  # All proxies use 9000
+SERVER_PORT=3001
+CLIENT_PORT=5174
 
 # Function for logging
 log() {
@@ -69,10 +73,11 @@ fi
 
 # Kill any existing processes using our ports
 log "Clearing ports..."
-lsof -ti:3000,3001,3002,3003,3004,3005,5173,9000 | xargs kill -9 2>/dev/null || true
-# Also kill any node processes that might be holding onto ports
-pkill -9 -f "node.*index.ts" 2>/dev/null || true
-pkill -9 -f "pnpm.*start" 2>/dev/null || true
+lsof -ti:$SERVER_PORT | xargs kill -9 2>/dev/null || true
+lsof -ti:$CLIENT_PORT | xargs kill -9 2>/dev/null || true
+# Also kill any node processes that might be holding onto these specific ports
+pkill -9 -f "node.*$SERVER_PORT" 2>/dev/null || true
+pkill -9 -f "pnpm.*$CLIENT_PORT" 2>/dev/null || true
 sleep 2
 
 # Validate characters and build character paths
@@ -84,11 +89,11 @@ for char in "${CHARACTERS[@]}"; do
     fi
     
     # Check if the character is in the characters directory
-    CHARACTER_PATH="/home/ubuntu/eliza-starter/characters/$char"
+    CHARACTER_PATH="$PROJECT_ROOT/characters/$char"
     if [ ! -f "$CHARACTER_PATH" ]; then
         log "Character file not found: $CHARACTER_PATH"
         log "Available characters:"
-        ls -1 /home/ubuntu/eliza-starter/characters/*.character.json | xargs -n1 basename | sed 's/\.character\.json//'
+        ls -1 $PROJECT_ROOT/characters/*.character.json | xargs -n1 basename | sed 's/\.character\.json//'
         exit 1
     fi
     
@@ -142,16 +147,27 @@ check_service() {
     return 1
 }
 
-# STEP 1: Start DeepSeek Proxy
-log "Starting DeepSeek proxy with PM2..."
-cd /home/ubuntu/eliza-starter/deepseek-proxy && \
-pm2 start "pnpm start" --name "deepseek-proxy-$INSTANCE_NAME" \
-  --log "$LOG_DIR/proxy-$INSTANCE_NAME.log" \
-  --merge-logs \
-  --time
+# STEP 1: Handle DeepSeek Proxy
+log "Checking for any running DeepSeek proxy..."
+if curl -s "http://216.238.91.120:9000/health" > /dev/null 2>&1; then
+    log "Found existing DeepSeek proxy, will use it"
+else
+    log "No DeepSeek proxy found, starting our own..."
+    # Kill any existing proxy processes just in case
+    pm2 stop "deepseek-proxy-$INSTANCE_NAME" 2>/dev/null || true
+    pm2 delete "deepseek-proxy-$INSTANCE_NAME" 2>/dev/null || true
+    pkill -f "node.*9000" 2>/dev/null || true
+    sleep 2
 
-# Check if proxy started
-check_service "deepseek-proxy-$INSTANCE_NAME" "http://localhost:9000/health" 15 1 || exit 1
+    cd $PROJECT_ROOT/deepseek-proxy && \
+    pm2 start "PORT=9000 pnpm start" --name "deepseek-proxy-$INSTANCE_NAME" \
+        --log "$LOG_DIR/proxy-$INSTANCE_NAME.log" \
+        --merge-logs \
+        --time
+
+    # Check if proxy started
+    check_service "deepseek-proxy-$INSTANCE_NAME" "http://216.238.91.120:9000/health" 15 1 || exit 1
+fi
 
 # STEP 2: Start Server with all characters in one process
 log "Starting server with characters: $CHARACTER_LIST"
@@ -168,13 +184,13 @@ if [ ! -f "$SCRIPT_FILE" ] || ! grep -q "CHARACTERS=" "$SCRIPT_FILE"; then
 #!/bin/bash
 # Get characters from command line args, default to metalayer if none provided
 CHARACTERS=\${@:-metalayer}
-cd /home/ubuntu/eliza-starter && NODE_ENV=production HOST=0.0.0.0 SERVER_PORT=3000 NODE_OPTIONS="--max-old-space-size=2048" pnpm start -- --character \$CHARACTERS > /dev/null 2>&1
+cd $PROJECT_ROOT && NODE_ENV=production HOST=0.0.0.0 SERVER_PORT=$SERVER_PORT NODE_OPTIONS="--max-old-space-size=2048" pnpm start -- --character \$CHARACTERS > /dev/null 2>&1
 EOF
     chmod +x "$SCRIPT_FILE"
 fi
 
 # Start server with PM2, passing character list as arguments
-cd /home/ubuntu/eliza-starter && \
+cd $PROJECT_ROOT && \
 pm2 start "$SCRIPT_FILE" \
     --name "eliza-server-$INSTANCE_NAME" \
     --log "/home/ubuntu/eliza-starter/logs/server-$INSTANCE_NAME.log" \
@@ -187,25 +203,32 @@ pm2 start "$SCRIPT_FILE" \
 
 # Check if server started
 log "Waiting for server to start (this may take a few minutes)..."
-check_service "eliza-server-$INSTANCE_NAME" "http://localhost:3000/agents" 180 2 || log "Warning: Server check failed, but continuing anyway..."
+check_service "eliza-server-$INSTANCE_NAME" "http://216.238.91.120:$SERVER_PORT/agents" 180 2 || log "Warning: Server check failed, but continuing anyway..."
 
 # STEP 3: Start Client
 log "Starting client with PM2..."
 
-# First install client dependencies
+# First install client dependencies if needed
 cd /home/ubuntu/eliza/client && \
 pnpm install
 
-# Then start the client
+# Build the client first
+log "Building client in production mode..."
 cd /home/ubuntu/eliza/client && \
-pm2 start "pnpm dev" --name "eliza-client-$INSTANCE_NAME" \
-  --log "$LOG_DIR/client-$INSTANCE_NAME.log" \
-  --merge-logs \
-  --time \
-  --cwd /home/ubuntu/eliza/client
+NODE_ENV=production \
+SERVER_PORT=$SERVER_PORT \
+VITE_SERVER_URL=http://216.238.91.120 \
+VITE_CLIENT_PORT=$CLIENT_PORT \
+pnpm build
 
-# Check if client started
-check_service "eliza-client-$INSTANCE_NAME" "http://localhost:5173" 30 1 || exit 1
+# Then start the client in preview mode
+log "Starting client preview server..."
+cd /home/ubuntu/eliza/client && \
+pm2 start "NODE_ENV=production VITE_API_BASE_URL=http://216.238.91.120:$SERVER_PORT pnpm preview --host 0.0.0.0 --port $CLIENT_PORT" \
+    --name "eliza-client-$INSTANCE_NAME" \
+    --log "$LOG_DIR/client-$INSTANCE_NAME.log" \
+    --merge-logs \
+    --time
 
 # Save PM2 configuration so it persists through reboots
 log "Saving PM2 configuration..."
@@ -218,134 +241,3 @@ log "  - View logs: pm2 logs [service-name]"
 log "  - Restart server: pm2 restart eliza-server-$INSTANCE_NAME"
 log "  - Stop all: pm2 stop all"
 log "  - Start all: pm2 start all"
-
-# Create restart-characters.sh for easy character switching
-cat > /home/ubuntu/eliza-starter/restart-characters-$INSTANCE_NAME.sh << EOL
-#!/bin/bash
-
-DEBUG_MODE=false
-CHARACTERS=()
-INSTANCE_NAME="$INSTANCE_NAME"
-
-# Function for logging
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-}
-
-# Parse command line options
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --debug)
-      DEBUG_MODE=true
-      shift
-      ;;
-    -*)
-      echo "Unknown option: $1"
-      exit 1
-      ;;
-    *)
-      # If argument doesn't start with -, treat as character name
-      CHARACTERS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-if [ ${#CHARACTERS[@]} -eq 0 ]; then
-    echo "Usage: $0 [--debug] character1 [character2 ...]"
-    echo "Available characters:"
-    ls -1 /home/ubuntu/eliza-starter/characters/*.character.json | xargs -n1 basename | sed 's/\.character\.json//'
-    exit 1
-fi
-
-# Validate characters and build character paths
-CHARACTER_PATHS=()
-for char in "\${CHARACTERS[@]}"; do
-    # If the character doesn't end with .character.json, append it
-    if [[ "\$char" != *".character.json" ]]; then
-        char="\${char}.character.json"
-    fi
-    
-    # Check if the character is in the characters directory
-    CHARACTER_PATH="/home/ubuntu/eliza-starter/characters/\$char"
-    if [ ! -f "\$CHARACTER_PATH" ]; then
-        echo "Character file not found: \$CHARACTER_PATH"
-        echo "Available characters:"
-        ls -1 /home/ubuntu/eliza-starter/characters/*.character.json | xargs -n1 basename | sed 's/\.character\.json//'
-        exit 1
-    fi
-    
-    CHARACTER_PATHS+=("characters/\$char")
-    CHARACTER_NAME=\$(basename "\$CHARACTER_PATH" .character.json)
-    log "Validated character: \$CHARACTER_NAME"
-done
-
-# Build comma-separated list of characters
-CHARACTER_LIST=\$(IFS=, ; echo "\${CHARACTER_PATHS[*]}")
-log "Restarting server with characters: \$CHARACTER_LIST"
-
-# Restart the server with new characters
-pm2 stop "eliza-server-\$INSTANCE_NAME"
-pm2 delete "eliza-server-\$INSTANCE_NAME"
-
-# Create command script
-SCRIPT_FILE="/home/ubuntu/eliza-starter/logs/restart_server-\$INSTANCE_NAME.sh"
-if [ "\$DEBUG_MODE" = true ]; then
-    echo "Debug mode enabled: Detailed logs will be available"
-    cat > "\$SCRIPT_FILE" << EOF
-#!/bin/bash
-cd /home/ubuntu/eliza-starter && NODE_ENV=production HOST=0.0.0.0 SERVER_PORT=3000 NODE_OPTIONS="--max-old-space-size=4096" DEBUG=* TRACE=* ELIZA_LOG_LEVEL=debug pnpm start -- --character \$CHARACTER_LIST
-EOF
-else
-    cat > "\$SCRIPT_FILE" << EOF
-#!/bin/bash
-cd /home/ubuntu/eliza-starter && NODE_ENV=production HOST=0.0.0.0 SERVER_PORT=3000 NODE_OPTIONS="--max-old-space-size=4096" pnpm start -- --character \$CHARACTER_LIST
-EOF
-fi
-chmod +x "\$SCRIPT_FILE"
-
-cd /home/ubuntu/eliza-starter && \
-pm2 start "\$SCRIPT_FILE" \
-    --name "eliza-server-\$INSTANCE_NAME" \
-    --log "/home/ubuntu/eliza-starter/logs/server-\$INSTANCE_NAME.log" \
-    --merge-logs \
-    --time
-
-# Check if server started
-for i in {1..30}; do
-    if curl -s "http://localhost:3000/agents" > /dev/null 2>&1; then
-        echo "Server is running with new characters!"
-        # Display the agents
-        echo "Available agents:"
-        curl -s "http://localhost:3000/agents" | python3 -m json.tool
-        break
-    fi
-    echo -n "."
-    sleep 1
-done
-
-echo "Server restarted! Access at http://localhost:3000"
-echo "Check logs with: pm2 logs eliza-server-\$INSTANCE_NAME"
-EOL
-
-# Create list-characters.sh script
-cat > /home/ubuntu/eliza-starter/list-characters-$INSTANCE_NAME.sh << EOL
-#!/bin/bash
-
-echo "Available characters:"
-echo "-------------------"
-ls -1 /home/ubuntu/eliza-starter/characters/*.character.json | xargs -n1 basename | sed 's/\.character\.json//'
-echo ""
-
-echo "Running agents for instance $INSTANCE_NAME:"
-echo "----------------------------------------"
-curl -s "http://localhost:3000/agents" | python3 -m json.tool
-EOL
-
-# Make scripts executable
-chmod +x /home/ubuntu/eliza-starter/restart-characters-$INSTANCE_NAME.sh
-chmod +x /home/ubuntu/eliza-starter/list-characters-$INSTANCE_NAME.sh
-
-log "Helper scripts created:"
-log "  - restart-characters-$INSTANCE_NAME.sh: Restart server with new characters"
-log "  - list-characters-$INSTANCE_NAME.sh: List available characters and running agents"

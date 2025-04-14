@@ -1,31 +1,12 @@
 #!/bin/bash
 
-# Define the path to the lerna.json file
-LERNA_FILE="../lerna.json"
+# Create src/lib directory if it doesn't exist
+mkdir -p src/lib
 
-# Check if lerna.json exists
-if [ ! -f "${LERNA_FILE}" ]; then
-  echo "Error: ${LERNA_FILE} does not exist."
-  exit 1
-fi
+# Extract version from package.json, looking for @elizaos/core version
+VERSION=$(grep -A 1 '"@elizaos/core"' package.json | grep -o '"[0-9]\+\.[0-9]\+\.[0-9]\+"' | tr -d '"' || echo "0.1.0")
 
-# Check if we have write permissions to the destination directory
-if [ ! -w "src/lib" ]; then
-  echo "Error: No write permission to src/lib directory."
-  exit 1
-fi
-
-# Extract the version property from lerna.json using grep and awk
-VERSION=$(grep -o '"version": *"[^"]*"' "$LERNA_FILE" | awk -F: '{ gsub(/[ ",]/, "", $2); print $2 }')
-
-# Check if version was successfully extracted
-if [ -z "$VERSION" ]; then
-  echo "Error: Unable to extract version from $LERNA_FILE."
-  exit 1
-fi
-
-# Create or overwrite info.json with the version property
+# Create or overwrite info.json with the version
 echo "{\"version\": \"$VERSION\"}" > src/lib/info.json
 
-# Confirm success
-echo "info.json created with version: $VERSION"
+echo "Created src/lib/info.json with version $VERSION"

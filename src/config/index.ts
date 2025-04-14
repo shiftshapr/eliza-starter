@@ -52,9 +52,12 @@ export async function loadCharacters(
   let characterPaths = charactersArg?.split(",").map((filePath) => {
     console.log('DEBUG: Processing filepath:', filePath);
     if (path.basename(filePath) === filePath) {
-      filePath = "../characters/" + filePath;
+      filePath = path.join(process.cwd(), "characters", filePath);
     }
-    const resolvedPath = path.resolve(process.cwd(), filePath.trim());
+    if (!filePath.endsWith('.character.json')) {
+      filePath = filePath + '.character.json';
+    }
+    const resolvedPath = path.resolve(filePath.trim());
     console.log('DEBUG: Resolved path:', resolvedPath);
     return resolvedPath;
   });
