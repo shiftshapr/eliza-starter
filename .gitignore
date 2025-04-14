@@ -44,7 +44,7 @@ content_cache/
 .cache/
 content_cache/
 
-# Generated scripts
+# Generated instance-specific scripts
 list-characters-*.sh
 restart-characters-*.sh
 

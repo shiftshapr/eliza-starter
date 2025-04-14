@@ -193,31 +193,21 @@ check_service "eliza-server-$INSTANCE_NAME" "http://localhost:3000/agents" 180 2
 log "Starting client with PM2..."
 
 # First install client dependencies if needed
-cd /home/ubuntu/eliza/client && \
+cd /home/ubuntu/eliza-starter/client && \
 pnpm install
 
 # Build the client first
-log "Building client in production mode..."
-cd /home/ubuntu/eliza/client && \
-NODE_ENV=production pnpm build
+pnpm build
 
-# Then start the client in preview mode
-log "Starting client preview server..."
-cd /home/ubuntu/eliza/client && \
-pm2 start "NODE_ENV=production pnpm preview --host 0.0.0.0 --port 5173" \
+# Start the client with PM2
+pm2 start "pnpm preview" \
     --name "eliza-client-$INSTANCE_NAME" \
     --log "$LOG_DIR/client-$INSTANCE_NAME.log" \
     --merge-logs \
     --time
 
-# Save PM2 configuration so it persists through reboots
-log "Saving PM2 configuration..."
-pm2 save
+# Check if client started
+check_service "eliza-client-$INSTANCE_NAME" "http://localhost:5173" 15 1 || log "Warning: Client check failed, but continuing anyway..."
 
-log "All services started successfully for instance: $INSTANCE_NAME!"
-log "Use these commands for management:"
-log "  - View all processes: pm2 list"
-log "  - View logs: pm2 logs [service-name]"
-log "  - Restart server: pm2 restart eliza-server-$INSTANCE_NAME"
-log "  - Stop all: pm2 stop all"
-log "  - Start all: pm2 start all"
+log "All services started. Client should be available at http://localhost:5173"
+log "Check logs with: pm2 logs"
