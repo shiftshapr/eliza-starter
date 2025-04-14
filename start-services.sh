@@ -192,13 +192,19 @@ check_service "eliza-server-$INSTANCE_NAME" "http://localhost:3000/agents" 180 2
 # STEP 3: Start Client
 log "Starting client with PM2..."
 
-# First install client dependencies
+# First install client dependencies if needed
 cd /home/ubuntu/eliza/client && \
 pnpm install
 
-# Then start the client
+# Build the client first
+log "Building client in production mode..."
 cd /home/ubuntu/eliza/client && \
-pm2 start "pnpm dev" \
+NODE_ENV=production pnpm build
+
+# Then start the client in preview mode
+log "Starting client preview server..."
+cd /home/ubuntu/eliza/client && \
+pm2 start "NODE_ENV=production pnpm preview --host 0.0.0.0 --port 5173" \
     --name "eliza-client-$INSTANCE_NAME" \
     --log "$LOG_DIR/client-$INSTANCE_NAME.log" \
     --merge-logs \
