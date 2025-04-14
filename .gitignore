@@ -30,7 +30,9 @@ message_response.log
 Thumbs.db
 
 # Runtime data
-instances/
+instances/*/data/
+instances/*/logs/
+instances/*/cache/
 knowledge_files/
 characters_backup/
 model.gguf
@@ -39,7 +41,7 @@ model.gguf
 .cache/
 content_cache/
 
-# Generated instance-specific scripts
+# Generated scripts
 list-characters-*.sh
 restart-characters-*.sh
 
