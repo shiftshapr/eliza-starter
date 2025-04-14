@@ -29,13 +29,16 @@ message_response.log
 .DS_Store
 Thumbs.db
 
-# Runtime data
+# Runtime data and sensitive files
 instances/*/data/
 instances/*/logs/
 instances/*/cache/
 knowledge_files/
 characters_backup/
 model.gguf
+characters/*.character.json
+knowledge/
+content_cache/
 
 # Cache directories
 .cache/
